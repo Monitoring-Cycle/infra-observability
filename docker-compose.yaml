@@ -1,36 +1,4 @@
 services:
-  setup:
-    image: ubuntu:latest
-    container_name: kind-setup
-    privileged: true
-    volumes:
-      - ./kind-config.yaml:/kind-config.yaml
-      - ./nginx-configmap.yaml:/nginx-configmap.yaml
-      - ./nginx-deployment.yaml:/nginx-deployment.yaml
-      - ./nginx-pod.yaml:/nginx-pod.yaml
-      - ./nginx-service.yaml:/nginx-service.yaml
-    command: >
-      bash -c "
-      apt-get update && 
-      apt-get install -y curl apt-transport-https ca-certificates gnupg lsb-release && 
-      mkdir -p /etc/apt/keyrings && 
-      curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg && 
-      echo \"deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable\" | tee /etc/apt/sources.list.d/docker.list > /dev/null && 
-      apt-get update && 
-      apt-get install -y docker-ce docker-ce-cli containerd.io && 
-      curl -Lo /usr/local/bin/kind https://kind.sigs.k8s.io/dl/latest/kind-linux-amd64 && 
-      chmod +x /usr/local/bin/kind && 
-      curl -LO \"https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl\" && 
-      chmod +x kubectl && mv kubectl /usr/local/bin/ && 
-      export PATH=$PATH:/usr/local/bin && 
-      dockerd & sleep 5 && 
-      kind create cluster --config /kind-config.yaml && 
-      kubectl apply -f /nginx-configmap.yaml && 
-      kubectl apply -f /nginx-deployment.yaml && 
-      kubectl apply -f /nginx-pod.yaml && 
-      kubectl apply -f /nginx-service.yaml && 
-      tail -f /dev/null"
-
   argocd:
     image: argoproj/argocd:latest
     container_name: argocd-server
@@ -38,25 +6,18 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - ~/.kube:/root/.kube # Montar o kubeconfig para acesso ao cluster
+      - ~/.kube:/root/.kube
+      - ~/.minikube:/root/.minikube
     environment:
       - ARGOCD_ADMIN_PASSWORD=admin123
       - KUBECONFIG=/root/.kube/config
-    user: "0:0" # Executar como root para evitar problemas de permissão
-    command: >
-      bash -c "
-      chmod 755 /root/.kube && chmod 644 /root/.kube/config && 
-      argocd-server --insecure & 
-      sleep 30 && 
-      argocd login localhost:8080 --username admin --password $ARGOCD_ADMIN_PASSWORD && 
-      argocd cluster add kind-kind --insecure --in-cluster --upsert && 
-      argocd app create kube-argo \
-        --repo https://github.com/Monitoring-Cycle/infra-observability.git \
-        --path . \
-        --dest-server https://kubernetes.default.svc \
-        --dest-namespace default && 
-      argocd app sync kube-argo && 
-      tail -f /dev/null"
+    user: "0:0"
+    entrypoint: ["bash", "-c"]
+    command:
+      - |
+        chmod 755 /root/.kube && chmod 644 /root/.kube/config && \
+        export MINIKUBE_HOME=/root/.minikube && \
+        exec argocd-server --insecure --staticassets /shared/app
     networks:
       - observability
 
